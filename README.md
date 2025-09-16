@@ -1,5 +1,7 @@
 # Blueberry Browser
 
+https://github.com/user-attachments/assets/bbf939e2-d87c-4c77-ab7d-828259f6d28d
+
 You are the CTO of Blueberry Browser, a Strawberry competitor. Your mission is to add a feature to Blueberry that makes superior & more promising than Strawberry.
 
 But, your time is limited, Strawberry is about to raise a two billion dollar series A round from X-Separator, B17Å and Sequoiadendron giganteum Capital.
