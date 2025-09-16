@@ -42,7 +42,7 @@ Tab state series -> Prompt for web agent how to reproduce the work
 
 Sidebar coding agent that can create a script that can run on the open tabs.
 
-Maybe useful for filling forms or changing the page's style so it can 
+Maybe useful for filling forms or changing the page's style so it can extract data but present it in a nicer format.
 
 
 **Your Own Idea**
