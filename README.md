@@ -38,11 +38,17 @@ Track the things that the user is doing inside the browser and figure out from a
 
 Tab state series -> Prompt for web agent how to reproduce the work
 
+
 **Coding Agent**
 
 Sidebar coding agent that can create a script that can run on the open tabs.
 
 Maybe useful for filling forms or changing the page's style so it can extract data but present it in a nicer format.
+
+
+**Tab Completion Model**
+
+Predict next action or what to type, like cursor autocomplete.
 
 
 **Your Own Idea**
