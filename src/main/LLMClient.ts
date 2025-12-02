@@ -243,19 +243,15 @@ export class LLMClient {
       throw new Error("Model not initialized");
     }
 
-    try {
-      const result = await streamText({
-        model: this.model,
-        messages,
-        temperature: DEFAULT_TEMPERATURE,
-        maxRetries: 3,
-        abortSignal: undefined, // Could add abort controller for cancellation
-      });
+    const result = await streamText({
+      model: this.model,
+      messages,
+      temperature: DEFAULT_TEMPERATURE,
+      maxRetries: 3,
+      abortSignal: undefined, // Could add abort controller for cancellation
+    });
 
-      await this.processStream(result.textStream, messageId);
-    } catch (error) {
-      throw error; // Re-throw to be handled by the caller
-    }
+    await this.processStream(result.textStream, messageId);
   }
 
   private async processStream(
