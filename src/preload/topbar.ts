@@ -30,6 +30,10 @@ const topBarAPI = {
 
   // Sidebar
   toggleSidebar: () => electronAPI.ipcRenderer.invoke("toggle-sidebar"),
+
+  // Session
+  dumpSessionData: () => electronAPI.ipcRenderer.invoke("dump-session-data"),
+  restoreSessionData: () => electronAPI.ipcRenderer.invoke("restore-session-data"),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

@@ -28,6 +28,10 @@ interface TopBarAPI {
 
   // Sidebar
   toggleSidebar: () => Promise<void>;
+
+  // Session
+  dumpSessionData: () => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  restoreSessionData: () => Promise<{ success: boolean; filePath?: string; error?: string }>;
 }
 
 declare global {

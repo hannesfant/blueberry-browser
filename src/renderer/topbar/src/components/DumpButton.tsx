@@ -1,0 +1,18 @@
+import React from "react";
+import { Download } from "lucide-react";
+import { ToolBarButton } from "../components/ToolBarButton";
+
+export const DumpButton: React.FC = () => {
+  const handleDumpSession = async () => {
+    console.log("Dumping session data...");
+    const result = await window.topBarAPI.dumpSessionData();
+    if (result.success) {
+      console.log("Session data saved to:", result.filePath);
+    } else {
+      console.error("Failed to dump session:", result.error);
+    }
+  };
+
+  return <ToolBarButton Icon={Download} onClick={handleDumpSession} />;
+};
+

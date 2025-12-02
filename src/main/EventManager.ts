@@ -1,4 +1,6 @@
-import { ipcMain, WebContents } from "electron";
+import { ipcMain, WebContents, app } from "electron";
+import { writeFile, readFile } from "fs/promises";
+import { join } from "path";
 import type { Window } from "./Window";
 
 export class EventManager {
@@ -24,6 +26,9 @@ export class EventManager {
 
     // Debug events
     this.handleDebugEvents();
+
+    // Session events
+    this.handleSessionEvents();
   }
 
   private handleTabEvents(): void {
@@ -221,6 +226,130 @@ export class EventManager {
   private handleDebugEvents(): void {
     // Ping test
     ipcMain.on("ping", () => console.log("pong"));
+  }
+
+  private handleSessionEvents(): void {
+    ipcMain.handle("dump-session-data", async () => {
+      const tabs = this.mainWindow.allTabs;
+      if (tabs.length === 0) return { success: false, error: "No tabs open" };
+
+      try {
+        // Use the session from the first tab (all tabs share the same session)
+        const session = tabs[0].webContents.session;
+
+        // Get ALL cookies from the session (this includes all persistent cookies)
+        const cookies = await session.cookies.get({});
+
+        // Get sessionStorage from each open tab (sessionStorage is tab-specific)
+        const tabsSessionStorage = await Promise.all(
+          tabs.map(async (tab) => {
+            try {
+              const sessionStorage = await tab.runJs(`
+                (() => {
+                  const data = {};
+                  for (let i = 0; i < window.sessionStorage.length; i++) {
+                    const key = window.sessionStorage.key(i);
+                    data[key] = window.sessionStorage.getItem(key);
+                  }
+                  return data;
+                })()
+              `);
+              return {
+                url: tab.url,
+                sessionStorage,
+              };
+            } catch (err) {
+              return {
+                url: tab.url,
+                error: String(err),
+              };
+            }
+          }),
+        );
+
+        const sessionData = {
+          timestamp: new Date().toISOString(),
+          cookies,
+          tabsSessionStorage,
+        };
+
+        const filePath = join(app.getPath("userData"), "session-dump.json");
+        await writeFile(filePath, JSON.stringify(sessionData, null, 2));
+
+        console.log("Session data dumped to:", filePath);
+        return { success: true, filePath };
+      } catch (error) {
+        console.error("Error dumping session data:", error);
+        return { success: false, error: String(error) };
+      }
+    });
+
+    ipcMain.handle("restore-session-data", async () => {
+      const tabs = this.mainWindow.allTabs;
+      if (tabs.length === 0) return { success: false, error: "No tabs open" };
+
+      try {
+        const filePath = join(app.getPath("userData"), "session-dump.json");
+        const fileContent = await readFile(filePath, "utf-8");
+        const sessionData = JSON.parse(fileContent);
+
+        // Use the session from the first tab
+        const session = tabs[0].webContents.session;
+
+        // Restore cookies
+        for (const cookie of sessionData.cookies) {
+          try {
+            // Build the cookie URL
+            const protocol = cookie.secure ? "https" : "http";
+            const domain = cookie.domain.startsWith(".")
+              ? cookie.domain.slice(1)
+              : cookie.domain;
+            const url = `${protocol}://${domain}${cookie.path || "/"}`;
+
+            await session.cookies.set({
+              url,
+              name: cookie.name,
+              value: cookie.value,
+              domain: cookie.domain,
+              path: cookie.path,
+              secure: cookie.secure,
+              httpOnly: cookie.httpOnly,
+              sameSite: cookie.sameSite,
+              expirationDate: cookie.expirationDate,
+            });
+          } catch (err) {
+            console.warn("Failed to restore cookie:", cookie.name, err);
+          }
+        }
+
+        // Restore sessionStorage for matching tabs
+        if (sessionData.tabsSessionStorage) {
+          for (const tabData of sessionData.tabsSessionStorage) {
+            if (tabData.sessionStorage && !tabData.error) {
+              // Find a tab with matching URL
+              const matchingTab = tabs.find((t) => t.url === tabData.url);
+              if (matchingTab) {
+                const storageEntries = JSON.stringify(tabData.sessionStorage);
+                await matchingTab.runJs(`
+                  (() => {
+                    const data = ${storageEntries};
+                    for (const [key, value] of Object.entries(data)) {
+                      window.sessionStorage.setItem(key, value);
+                    }
+                  })()
+                `);
+              }
+            }
+          }
+        }
+
+        console.log("Session data restored from:", filePath);
+        return { success: true, filePath };
+      } catch (error) {
+        console.error("Error restoring session data:", error);
+        return { success: false, error: String(error) };
+      }
+    });
   }
 
   private broadcastDarkMode(sender: WebContents, isDarkMode: boolean): void {
