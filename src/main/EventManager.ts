@@ -1,7 +1,7 @@
-import { ipcMain, WebContents, app } from "electron";
-import { writeFile, readFile } from "fs/promises";
-import { join } from "path";
+import { ipcMain, WebContents, net } from "electron";
 import type { Window } from "./Window";
+
+const SYNC_SERVER_URL = process.env.SYNC_SERVER_URL || "http://localhost:3000";
 
 export class EventManager {
   private mainWindow: Window;
@@ -273,11 +273,19 @@ export class EventManager {
           tabsSessionStorage,
         };
 
-        const filePath = join(app.getPath("userData"), "session-dump.json");
-        await writeFile(filePath, JSON.stringify(sessionData, null, 2));
+        // POST to sync server
+        const response = await net.fetch(`${SYNC_SERVER_URL}/sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: sessionData }),
+        });
 
-        console.log("Session data dumped to:", filePath);
-        return { success: true, filePath };
+        if (!response.ok) {
+          throw new Error(`Server responded with ${response.status}`);
+        }
+
+        console.log("Session data synced to server");
+        return { success: true };
       } catch (error) {
         console.error("Error dumping session data:", error);
         return { success: false, error: String(error) };
@@ -289,9 +297,12 @@ export class EventManager {
       if (tabs.length === 0) return { success: false, error: "No tabs open" };
 
       try {
-        const filePath = join(app.getPath("userData"), "session-dump.json");
-        const fileContent = await readFile(filePath, "utf-8");
-        const sessionData = JSON.parse(fileContent);
+        // GET from sync server
+        const response = await net.fetch(`${SYNC_SERVER_URL}/sync`);
+        if (!response.ok) {
+          throw new Error(`Server responded with ${response.status}`);
+        }
+        const sessionData = await response.json();
 
         // Use the session from the first tab
         const session = tabs[0].webContents.session;
@@ -343,8 +354,8 @@ export class EventManager {
           }
         }
 
-        console.log("Session data restored from:", filePath);
-        return { success: true, filePath };
+        console.log("Session data restored from server");
+        return { success: true };
       } catch (error) {
         console.error("Error restoring session data:", error);
         return { success: false, error: String(error) };

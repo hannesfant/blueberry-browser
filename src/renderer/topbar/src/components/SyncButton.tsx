@@ -1,5 +1,5 @@
 import React from "react";
-import { Upload } from "lucide-react";
+import { Download } from "lucide-react";
 import { ToolBarButton } from "../components/ToolBarButton";
 
 export const SyncButton: React.FC = () => {
@@ -7,11 +7,11 @@ export const SyncButton: React.FC = () => {
     console.log("Restoring session data...");
     const result = await window.topBarAPI.restoreSessionData();
     if (result.success) {
-      console.log("Session data restored from:", result.filePath);
+      console.log("Session data restored from server");
     } else {
       console.error("Failed to restore session:", result.error);
     }
   };
 
-  return <ToolBarButton Icon={Upload} onClick={handleRestoreSession} />;
+  return <ToolBarButton Icon={Download} onClick={handleRestoreSession} />;
 };
