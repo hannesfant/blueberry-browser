@@ -14,8 +14,10 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@browserbasehq/stagehand": "^3.0.5",
     "@hono/zod-validator": "^0.7.5",
     "hono": "^4.10.7",
+    "puppeteer-core": "^24.9.0",
     "zod": "^4.1.13"
   }
 }
