@@ -1,7 +1,6 @@
 import { ipcMain, WebContents, net } from "electron";
 import type { Window } from "./Window";
-
-const SYNC_SERVER_URL = process.env.SYNC_SERVER_URL || "http://localhost:3000";
+import { syncServerRequest } from "./api-client";
 
 export class EventManager {
   private mainWindow: Window;
@@ -274,11 +273,12 @@ export class EventManager {
           userAgent: session.getUserAgent(),
         };
 
+        console.log("Session data:", session.getUserAgent());
+
         // POST to sync server
-        const response = await net.fetch(`${SYNC_SERVER_URL}/sync`, {
+        const response = await syncServerRequest("/sync", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: sessionData }),
+          body: { data: sessionData },
         });
 
         if (!response.ok) {
@@ -299,7 +299,7 @@ export class EventManager {
 
       try {
         // GET from sync server
-        const response = await net.fetch(`${SYNC_SERVER_URL}/sync`);
+        const response = await syncServerRequest("/sync");
         if (!response.ok) {
           throw new Error(`Server responded with ${response.status}`);
         }

@@ -1,10 +1,12 @@
 import { WebContents } from "electron";
-import { streamText, type LanguageModel, type CoreMessage } from "ai";
+import { streamText, tool, type LanguageModel, type CoreMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
+import { z } from "zod";
 import type { Window } from "./Window";
+import { syncServerRequest } from "./api-client";
 
 // Load environment variables from .env file
 dotenv.config({ path: join(__dirname, "../../.env") });
@@ -23,7 +25,7 @@ type LLMProvider = "openai" | "anthropic";
 
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
   openai: "gpt-5-mini",
-  anthropic: "claude-3-5-sonnet-20241022",
+  anthropic: "claude-haiku-4-5-20251001",
 };
 
 const MAX_CONTEXT_LENGTH = 4000;
@@ -249,6 +251,134 @@ export class LLMClient {
       temperature: DEFAULT_TEMPERATURE,
       maxRetries: 3,
       abortSignal: undefined, // Could add abort controller for cancellation
+      tools: {
+        create_scheduled_task: tool({
+          description:
+            "Create a scheduled task that runs on a regular interval defined by cron syntax. The browser agent will execute the given prompt at each scheduled time. Ask follow-up questions if you cannot construct an adequate prompt.",
+          inputSchema: z.object({
+            cron: z
+              .string()
+              .describe(
+                'Cron syntax string defining when the task should run (e.g., "0 0 9 * * *" for 9am daily, "0 */30 * * * *" for every 30 minutes, "0 0 0 * * 0" for weekly on Sunday). The format is [second] [minute] [hour] [day of month] [month] [day of week]',
+              ),
+            instruction: z
+              .string()
+              .describe(
+                "The exact instruction that the agent should execute at each scheduled interval. Do not include the interval in the instruction.",
+              ),
+          }),
+          execute: async ({ cron, instruction }) => {
+            console.log("📅 Create Scheduled Task Tool Called:");
+            console.log("  Cron:", cron);
+            console.log("  Instruction:", instruction);
+
+            try {
+              const response = await syncServerRequest("/tasks/schedule", {
+                method: "POST",
+                body: { cron, instruction },
+              });
+
+              if (!response.ok) {
+                const error = await response.text();
+                console.error("Failed to schedule task:", error);
+                return {
+                  success: false,
+                  message: `Failed to schedule task: ${error}`,
+                };
+              }
+
+              console.log("✅ Task scheduled successfully");
+              return {
+                success: true,
+                message: `Task scheduled with cron "${cron}"`,
+              };
+            } catch (error) {
+              console.error("Error scheduling task:", error);
+              return {
+                success: false,
+                message: `Error scheduling task: ${error instanceof Error ? error.message : String(error)}`,
+              };
+            }
+          },
+        }),
+        list_scheduled_tasks: tool({
+          description:
+            "List all scheduled tasks for the user. Shows task ID, cron schedule, and instruction.",
+          inputSchema: z.object({}),
+          execute: async () => {
+            console.log("📋 List Scheduled Tasks Tool Called");
+
+            try {
+              const response = await syncServerRequest("/tasks", {
+                method: "GET",
+              });
+
+              if (!response.ok) {
+                const error = await response.text();
+                console.error("Failed to list tasks:", error);
+                return {
+                  success: false,
+                  message: `Failed to list tasks: ${error}`,
+                };
+              }
+
+              const data = await response.json();
+              console.log(`✅ Retrieved ${data.tasks?.length || 0} tasks`);
+              
+              return {
+                success: true,
+                tasks: data.tasks || [],
+              };
+            } catch (error) {
+              console.error("Error listing tasks:", error);
+              return {
+                success: false,
+                message: `Error listing tasks: ${error instanceof Error ? error.message : String(error)}`,
+              };
+            }
+          },
+        }),
+        delete_scheduled_task: tool({
+          description:
+            "Delete a scheduled task by its ID. Use list_scheduled_tasks first to get the task IDs.",
+          inputSchema: z.object({
+            taskId: z
+              .number()
+              .describe("The ID of the task to delete"),
+          }),
+          execute: async ({ taskId }) => {
+            console.log("🗑️  Delete Scheduled Task Tool Called:");
+            console.log("  Task ID:", taskId);
+
+            try {
+              const response = await syncServerRequest(`/tasks/${taskId}`, {
+                method: "DELETE",
+              });
+
+              if (!response.ok) {
+                const error = await response.text();
+                console.error("Failed to delete task:", error);
+                return {
+                  success: false,
+                  message: `Failed to delete task: ${error}`,
+                };
+              }
+
+              console.log("✅ Task deleted successfully");
+              return {
+                success: true,
+                message: `Task ${taskId} deleted successfully`,
+              };
+            } catch (error) {
+              console.error("Error deleting task:", error);
+              return {
+                success: false,
+                message: `Error deleting task: ${error instanceof Error ? error.message : String(error)}`,
+              };
+            }
+          },
+        }),
+      },
     });
 
     await this.processStream(result.textStream, messageId);
