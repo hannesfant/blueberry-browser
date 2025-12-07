@@ -271,6 +271,7 @@ export class EventManager {
           timestamp: new Date().toISOString(),
           cookies,
           tabsSessionStorage,
+          userAgent: session.getUserAgent(),
         };
 
         // POST to sync server
