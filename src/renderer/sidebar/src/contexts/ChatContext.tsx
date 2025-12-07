@@ -6,12 +6,26 @@ import React, {
   useCallback,
 } from "react";
 
+interface ToolCall {
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
+interface ToolResult {
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+}
+
 interface Message {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool";
   content: string;
   timestamp: number;
   isStreaming?: boolean;
+  toolCalls?: ToolCall[];
+  toolResults?: ToolResult[];
 }
 
 interface ChatContextType {
@@ -44,25 +58,62 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Convert CoreMessage to our frontend Message format
+  const convertCoreMessage = (msg: any, index: number): Message => {
+    const base = {
+      id: `msg-${index}`,
+      role: msg.role as Message["role"],
+      timestamp: Date.now(),
+      isStreaming: false,
+    };
+
+    // Handle different content types
+    if (typeof msg.content === "string") {
+      return { ...base, content: msg.content };
+    }
+
+    if (Array.isArray(msg.content)) {
+      const textPart = msg.content.find((p: any) => p.type === "text");
+      const toolCallParts = msg.content.filter(
+        (p: any) => p.type === "tool-call",
+      );
+      const toolResultParts = msg.content.filter(
+        (p: any) => p.type === "tool-result",
+      );
+
+      return {
+        ...base,
+        content: textPart?.text || "",
+        toolCalls:
+          toolCallParts.length > 0
+            ? toolCallParts.map((tc: any) => ({
+                toolCallId: tc.toolCallId,
+                toolName: tc.toolName,
+                args: tc.args,
+              }))
+            : undefined,
+        toolResults:
+          toolResultParts.length > 0
+            ? toolResultParts.map((tr: any) => ({
+                toolCallId: tr.toolCallId,
+                toolName: tr.toolName,
+                // Handle v5 format: output is { type: 'json', value: ... }
+                result: tr.output?.value ?? tr.output ?? tr.result,
+              }))
+            : undefined,
+      };
+    }
+
+    return { ...base, content: "" };
+  };
+
   // Load initial messages from main process
   useEffect(() => {
     const loadMessages = async () => {
       try {
         const storedMessages = await window.sidebarAPI.getMessages();
         if (storedMessages && storedMessages.length > 0) {
-          // Convert CoreMessage format to our frontend Message format
-          const convertedMessages = storedMessages.map(
-            (msg: any, index: number) => ({
-              id: `msg-${index}`,
-              role: msg.role,
-              content:
-                typeof msg.content === "string"
-                  ? msg.content
-                  : msg.content.find((p: any) => p.type === "text")?.text || "",
-              timestamp: Date.now(),
-              isStreaming: false,
-            }),
-          );
+          const convertedMessages = storedMessages.map(convertCoreMessage);
           setMessages(convertedMessages);
         }
       } catch (error) {
@@ -143,19 +194,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // Listen for message updates from main process
     const handleMessagesUpdated = (updatedMessages: any[]) => {
-      // Convert CoreMessage format to our frontend Message format
-      const convertedMessages = updatedMessages.map(
-        (msg: any, index: number) => ({
-          id: `msg-${index}`,
-          role: msg.role,
-          content:
-            typeof msg.content === "string"
-              ? msg.content
-              : msg.content.find((p: any) => p.type === "text")?.text || "",
-          timestamp: Date.now(),
-          isStreaming: false,
-        }),
-      );
+      const convertedMessages = updatedMessages.map(convertCoreMessage);
       setMessages(convertedMessages);
     };
 

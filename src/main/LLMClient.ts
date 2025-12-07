@@ -1,5 +1,11 @@
 import { WebContents } from "electron";
-import { streamText, tool, type LanguageModel, type CoreMessage } from "ai";
+import {
+  streamText,
+  tool,
+  type LanguageModel,
+  type CoreMessage,
+  zodSchema,
+} from "ai";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
@@ -30,6 +36,7 @@ const DEFAULT_MODELS: Record<LLMProvider, string> = {
 
 const MAX_CONTEXT_LENGTH = 4000;
 const DEFAULT_TEMPERATURE = 0.7;
+const MAX_STEPS = 10;
 
 export class LLMClient {
   private readonly webContents: WebContents;
@@ -237,25 +244,13 @@ export class LLMClient {
     return text.substring(0, maxLength) + "...";
   }
 
-  private async streamResponse(
-    messages: CoreMessage[],
-    messageId: string,
-  ): Promise<void> {
-    if (!this.model) {
-      throw new Error("Model not initialized");
-    }
-
-    const result = await streamText({
-      model: this.model,
-      messages,
-      temperature: DEFAULT_TEMPERATURE,
-      maxRetries: 3,
-      abortSignal: undefined, // Could add abort controller for cancellation
-      tools: {
-        create_scheduled_task: tool({
-          description:
-            "Create a scheduled task that runs on a regular interval defined by cron syntax. The browser agent will execute the given prompt at each scheduled time. Ask follow-up questions if you cannot construct an adequate prompt.",
-          inputSchema: z.object({
+  private getTools() {
+    return {
+      create_scheduled_task: tool({
+        description:
+          "Create a scheduled task that runs on a regular interval defined by cron syntax. The browser agent will execute the given prompt at each scheduled time. Ask follow-up questions if you cannot construct an adequate prompt.",
+        inputSchema: zodSchema(
+          z.object({
             cron: z
               .string()
               .describe(
@@ -267,167 +262,274 @@ export class LLMClient {
                 "The exact instruction that the agent should execute at each scheduled interval. Do not include the interval in the instruction.",
               ),
           }),
-          execute: async ({ cron, instruction }) => {
-            console.log("📅 Create Scheduled Task Tool Called:");
-            console.log("  Cron:", cron);
-            console.log("  Instruction:", instruction);
+        ),
+        execute: async ({ cron, instruction }) => {
+          console.log("📅 Create Scheduled Task Tool Called:");
+          console.log("  Cron:", cron);
+          console.log("  Instruction:", instruction);
 
-            try {
-              const response = await syncServerRequest("/tasks/schedule", {
-                method: "POST",
-                body: { cron, instruction },
-              });
+          try {
+            const response = await syncServerRequest("/tasks/schedule", {
+              method: "POST",
+              body: { cron, instruction },
+            });
 
-              if (!response.ok) {
-                const error = await response.text();
-                console.error("Failed to schedule task:", error);
-                return {
-                  success: false,
-                  message: `Failed to schedule task: ${error}`,
-                };
-              }
-
-              console.log("✅ Task scheduled successfully");
-              return {
-                success: true,
-                message: `Task scheduled with cron "${cron}"`,
-              };
-            } catch (error) {
-              console.error("Error scheduling task:", error);
+            if (!response.ok) {
+              const error = await response.text();
+              console.error("Failed to schedule task:", error);
               return {
                 success: false,
-                message: `Error scheduling task: ${error instanceof Error ? error.message : String(error)}`,
+                message: `Failed to schedule task: ${error}`,
               };
             }
-          },
-        }),
-        list_scheduled_tasks: tool({
-          description:
-            "List all scheduled tasks for the user. Shows task ID, cron schedule, and instruction.",
-          inputSchema: z.object({}),
-          execute: async () => {
-            console.log("📋 List Scheduled Tasks Tool Called");
 
-            try {
-              const response = await syncServerRequest("/tasks", {
-                method: "GET",
-              });
+            console.log("✅ Task scheduled successfully");
+            return {
+              success: true,
+              message: `Task scheduled with cron "${cron}"`,
+            };
+          } catch (error) {
+            console.error("Error scheduling task:", error);
+            return {
+              success: false,
+              message: `Error scheduling task: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+        },
+      }),
+      list_scheduled_tasks: tool({
+        description:
+          "List all scheduled tasks for the user. Shows task ID, cron schedule, and instruction.",
+        inputSchema: zodSchema(z.object({})),
+        execute: async () => {
+          console.log("📋 List Scheduled Tasks Tool Called");
 
-              if (!response.ok) {
-                const error = await response.text();
-                console.error("Failed to list tasks:", error);
-                return {
-                  success: false,
-                  message: `Failed to list tasks: ${error}`,
-                };
-              }
+          try {
+            const response = await syncServerRequest("/tasks", {
+              method: "GET",
+            });
 
-              const data = await response.json();
-              console.log(`✅ Retrieved ${data.tasks?.length || 0} tasks`);
-              
-              return {
-                success: true,
-                tasks: data.tasks || [],
-              };
-            } catch (error) {
-              console.error("Error listing tasks:", error);
+            if (!response.ok) {
+              const error = await response.text();
+              console.error("Failed to list tasks:", error);
               return {
                 success: false,
-                message: `Error listing tasks: ${error instanceof Error ? error.message : String(error)}`,
+                message: `Failed to list tasks: ${error}`,
               };
             }
-          },
-        }),
-        delete_scheduled_task: tool({
-          description:
-            "Delete a scheduled task by its ID. Use list_scheduled_tasks first to get the task IDs.",
-          inputSchema: z.object({
-            taskId: z
-              .number()
-              .describe("The ID of the task to delete"),
+
+            const data = await response.json();
+            console.log(`✅ Retrieved ${data.tasks?.length || 0} tasks`);
+
+            return {
+              success: true,
+              tasks: data.tasks || [],
+            };
+          } catch (error) {
+            console.error("Error listing tasks:", error);
+            return {
+              success: false,
+              message: `Error listing tasks: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+        },
+      }),
+      delete_scheduled_task: tool({
+        description:
+          "Delete a scheduled task by its ID. Use list_scheduled_tasks first to get the task IDs.",
+        inputSchema: zodSchema(
+          z.object({
+            taskId: z.number().describe("The ID of the task to delete"),
           }),
-          execute: async ({ taskId }) => {
-            console.log("🗑️  Delete Scheduled Task Tool Called:");
-            console.log("  Task ID:", taskId);
+        ),
+        execute: async ({ taskId }) => {
+          console.log("🗑️  Delete Scheduled Task Tool Called:");
+          console.log("  Task ID:", taskId);
 
-            try {
-              const response = await syncServerRequest(`/tasks/${taskId}`, {
-                method: "DELETE",
-              });
+          try {
+            const response = await syncServerRequest(`/tasks/${taskId}`, {
+              method: "DELETE",
+            });
 
-              if (!response.ok) {
-                const error = await response.text();
-                console.error("Failed to delete task:", error);
-                return {
-                  success: false,
-                  message: `Failed to delete task: ${error}`,
-                };
-              }
-
-              console.log("✅ Task deleted successfully");
-              return {
-                success: true,
-                message: `Task ${taskId} deleted successfully`,
-              };
-            } catch (error) {
-              console.error("Error deleting task:", error);
+            if (!response.ok) {
+              const error = await response.text();
+              console.error("Failed to delete task:", error);
               return {
                 success: false,
-                message: `Error deleting task: ${error instanceof Error ? error.message : String(error)}`,
+                message: `Failed to delete task: ${error}`,
               };
             }
-          },
-        }),
-      },
-    });
 
-    await this.processStream(result.textStream, messageId);
+            console.log("✅ Task deleted successfully");
+            return {
+              success: true,
+              message: `Task ${taskId} deleted successfully`,
+            };
+          } catch (error) {
+            console.error("Error deleting task:", error);
+            return {
+              success: false,
+              message: `Error deleting task: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+        },
+      }),
+    };
+  }
+
+  private async streamResponse(
+    messages: CoreMessage[],
+    messageId: string,
+  ): Promise<void> {
+    if (!this.model) {
+      throw new Error("Model not initialized");
+    }
+
+    let currentMessages = [...messages];
+    let stepCount = 0;
+
+    while (stepCount < MAX_STEPS) {
+      stepCount++;
+
+      const result = streamText({
+        model: this.model,
+        messages: currentMessages,
+        temperature: DEFAULT_TEMPERATURE,
+        maxRetries: 3,
+        tools: this.getTools(),
+      });
+
+      const { hasToolCalls, newMessages } = await this.processStream(
+        result,
+        messageId,
+      );
+
+      // If no tool calls were made, we're done
+      if (!hasToolCalls) {
+        break;
+      }
+
+      // Add new messages (tool calls and results) for next iteration
+      currentMessages = [...currentMessages, ...newMessages];
+    }
+
+    // Ensure we always send the complete signal at the very end
+    this.sendStreamChunk(messageId, {
+      content: "",
+      isComplete: true,
+    });
   }
 
   private async processStream(
-    textStream: AsyncIterable<string>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    result: any,
     messageId: string,
-  ): Promise<void> {
-    let accumulatedText = "";
+  ): Promise<{ hasToolCalls: boolean; newMessages: CoreMessage[] }> {
+    let currentStepText = "";
+    let messageIndex = this.messages.length;
+    const newMessages: CoreMessage[] = [];
+    let hasToolCalls = false;
 
-    // Create a placeholder assistant message
-    const assistantMessage: CoreMessage = {
-      role: "assistant",
-      content: "",
-    };
+    let currentToolCalls: Array<{
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+    }> = [];
 
-    // Keep track of the index for updates
-    const messageIndex = this.messages.length;
-    this.messages.push(assistantMessage);
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta") {
+        currentStepText += part.text;
 
-    for await (const chunk of textStream) {
-      accumulatedText += chunk;
+        // Update or create assistant message for current step
+        if (this.messages.length <= messageIndex) {
+          this.messages.push({ role: "assistant", content: currentStepText });
+        } else {
+          this.messages[messageIndex] = {
+            role: "assistant",
+            content: currentStepText,
+          };
+        }
+        this.sendMessagesToRenderer();
 
-      // Update assistant message content
-      this.messages[messageIndex] = {
-        role: "assistant",
-        content: accumulatedText,
-      };
-      this.sendMessagesToRenderer();
+        this.sendStreamChunk(messageId, {
+          content: part.text,
+          isComplete: false,
+        });
+      } else if (part.type === "tool-call") {
+        hasToolCalls = true;
+        currentToolCalls.push({
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+        });
 
-      this.sendStreamChunk(messageId, {
-        content: chunk,
-        isComplete: false,
-      });
+        // Build assistant message with tool calls for UI
+        const toolCallParts = currentToolCalls.map((tc) => ({
+          type: "tool-call" as const,
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.input,
+        }));
+
+        const toolCallMessage: CoreMessage = {
+          role: "assistant",
+          content: [
+            ...(currentStepText
+              ? [{ type: "text" as const, text: currentStepText }]
+              : []),
+            ...toolCallParts,
+          ],
+        };
+
+        if (this.messages.length <= messageIndex) {
+          this.messages.push(toolCallMessage);
+          newMessages.push(toolCallMessage);
+        } else {
+          this.messages[messageIndex] = toolCallMessage;
+          // Update the last new message if it was the assistant message
+          if (
+            newMessages.length > 0 &&
+            newMessages[newMessages.length - 1].role === "assistant"
+          ) {
+            newMessages[newMessages.length - 1] = toolCallMessage;
+          } else {
+            newMessages.push(toolCallMessage);
+          }
+        }
+        this.sendMessagesToRenderer();
+      } else if (part.type === "tool-result") {
+        // Format output for v5 - must be { type: 'json', value: ... }
+        const formattedOutput = {
+          type: "json" as const,
+          value: part.output,
+        };
+
+        // Add tool result message
+        const toolResultMessage: CoreMessage = {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result" as const,
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              output: formattedOutput,
+            },
+          ],
+        };
+
+        messageIndex = this.messages.length;
+        this.messages.push(toolResultMessage);
+        newMessages.push(toolResultMessage);
+        this.sendMessagesToRenderer();
+
+        // Reset for next step
+        currentStepText = "";
+        currentToolCalls = [];
+        messageIndex = this.messages.length;
+      }
     }
 
-    // Final update with complete content
-    this.messages[messageIndex] = {
-      role: "assistant",
-      content: accumulatedText,
-    };
-    this.sendMessagesToRenderer();
-
-    // Send the final complete signal
-    this.sendStreamChunk(messageId, {
-      content: accumulatedText,
-      isComplete: true,
-    });
+    return { hasToolCalls, newMessages };
   }
 
   private handleStreamError(error: unknown, messageId: string): void {

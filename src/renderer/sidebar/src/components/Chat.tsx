@@ -2,14 +2,14 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { ArrowUp, Square, Sparkles, Plus } from "lucide-react";
+import { ArrowUp, Plus } from "lucide-react";
 import { useChat } from "../contexts/ChatContext";
 import { cn } from "@common/lib/utils";
 import { Button } from "@common/components/Button";
 
 interface Message {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool";
   content: string;
   timestamp: number;
   isStreaming?: boolean;
@@ -59,6 +59,7 @@ const StreamingText: React.FC<{ content: string }> = ({ content }) => {
       }, 10);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [content, currentIndex]);
 
   return (
@@ -127,13 +128,15 @@ const AssistantMessage: React.FC<{
   isStreaming?: boolean;
 }> = ({ content, isStreaming }) => (
   <div className="relative w-full animate-fade-in">
-    <div className="py-1">
-      {isStreaming ? (
-        <StreamingText content={content} />
-      ) : (
-        <Markdown content={content} />
-      )}
-    </div>
+    {content && (
+      <div className="py-1">
+        {isStreaming ? (
+          <StreamingText content={content} />
+        ) : (
+          <Markdown content={content} />
+        )}
+      </div>
+    )}
   </div>
 );
 
@@ -249,21 +252,24 @@ const ChatInput: React.FC<{
 // Conversation Turn Component
 interface ConversationTurn {
   user?: Message;
-  assistant?: Message;
+  responses: Message[];
 }
 
 const ConversationTurnComponent: React.FC<{
   turn: ConversationTurn;
   isLoading?: boolean;
 }> = ({ turn, isLoading }) => (
-  <div className="pt-12 flex flex-col gap-8">
+  <div className="pt-12 flex flex-col gap-4">
     {turn.user && <UserMessage content={turn.user.content} />}
-    {turn.assistant && (
-      <AssistantMessage
-        content={turn.assistant.content}
-        isStreaming={turn.assistant.isStreaming}
-      />
-    )}
+    {turn.responses
+      .filter((msg) => msg.role === "assistant" && msg.content)
+      .map((msg) => (
+        <AssistantMessage
+          key={msg.id}
+          content={msg.content}
+          isStreaming={msg.isStreaming}
+        />
+      ))}
     {isLoading && (
       <div className="flex justify-start">
         <LoadingIndicator />
@@ -279,20 +285,21 @@ export const Chat: React.FC = () => {
 
   // Group messages into conversation turns
   const conversationTurns: ConversationTurn[] = [];
-  for (let i = 0; i < messages.length; i++) {
+  let i = 0;
+  while (i < messages.length) {
     if (messages[i].role === "user") {
-      const turn: ConversationTurn = { user: messages[i] };
-      if (messages[i + 1]?.role === "assistant") {
-        turn.assistant = messages[i + 1];
-        i++; // Skip next message since we've paired it
+      const turn: ConversationTurn = { user: messages[i], responses: [] };
+      i++;
+      // Collect all responses until next user message
+      while (i < messages.length && messages[i].role !== "user") {
+        turn.responses.push(messages[i]);
+        i++;
       }
       conversationTurns.push(turn);
-    } else if (
-      messages[i].role === "assistant" &&
-      (i === 0 || messages[i - 1]?.role !== "user")
-    ) {
-      // Handle standalone assistant messages
-      conversationTurns.push({ assistant: messages[i] });
+    } else {
+      // Handle standalone non-user messages (shouldn't happen often)
+      conversationTurns.push({ responses: [messages[i]] });
+      i++;
     }
   }
 
