@@ -21,7 +21,7 @@ export const executeAgent = async (
   const storedData = await store.get(userId);
   const userAgent = storedData?.userAgent as string | undefined;
 
-  const launchOptions: any = {
+  const launchOptions = {
     executablePath: "/Applications/Chromium.app/Contents/MacOS/Chromium",
     headless: false,
     preserveUserDataDir: false,
@@ -29,9 +29,7 @@ export const executeAgent = async (
   };
 
   // Add user agent if available
-  if (userAgent) {
-    launchOptions.args = [`--user-agent="${userAgent}"`];
-  }
+  if (userAgent) launchOptions.args = [`--user-agent="${userAgent}"`];
 
   const stagehand = new Stagehand({
     env: "LOCAL",
