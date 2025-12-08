@@ -124,19 +124,25 @@ const Markdown: React.FC<{ content: string }> = ({ content }) => (
 
 // Assistant Message Component - appears on the left
 const AssistantMessage: React.FC<{
-  content: string;
+  message: Message;
   isStreaming?: boolean;
-}> = ({ content, isStreaming }) => (
+}> = ({ message, isStreaming }) => (
   <div className="relative w-full animate-fade-in">
-    {content && (
+    {message.content && (
       <div className="py-1">
         {isStreaming ? (
-          <StreamingText content={content} />
+          <StreamingText content={message.content} />
         ) : (
-          <Markdown content={content} />
+          <Markdown content={message.content} />
         )}
       </div>
     )}
+    {message.toolCalls?.map(t => (
+      <span class="capitalize" key={t.toolCallId}>
+        Tool: {t.toolName.replace(/_/g, ' ')}
+      </span>
+    ))}
+    {/* <pre>{JSON.stringify(message, null, 2)}</pre> */}
   </div>
 );
 
@@ -266,7 +272,7 @@ const ConversationTurnComponent: React.FC<{
       .map((msg) => (
         <AssistantMessage
           key={msg.id}
-          content={msg.content}
+          message={msg}
           isStreaming={msg.isStreaming}
         />
       ))}
