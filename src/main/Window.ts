@@ -28,6 +28,8 @@ export class Window {
     this._topBar = new TopBar(this._baseWindow);
     this._sideBar = new SideBar(this._baseWindow);
 
+    this._sideBar.view.webContents.openDevTools({mode: 'detach'});
+
     // Set the window reference on the LLM client to avoid circular dependency
     this._sideBar.client.setWindow(this);
 
